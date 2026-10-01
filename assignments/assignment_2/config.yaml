@@ -1,0 +1,26 @@
+body: spider_12
+world: CraterTerrainWorld
+
+population_size: 10
+generations: 5
+
+mutation:
+  type: gaussian
+  probability: 1.0
+  sigma: 0.1
+
+parent_selection:
+  type: best_fraction
+  fraction: 0.5
+
+survivor_selection:
+  type: elitist
+
+crossover:
+  enabled: false
+
+seed: 0
+
+network:
+  hidden_size: 6
+  init_scale: 0.5
