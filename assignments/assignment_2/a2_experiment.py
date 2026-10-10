@@ -15,6 +15,8 @@ Usage
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 import random
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generations", type=int, default=None)
     parser.add_argument("--mutation-probability", type=float, default=None)
     parser.add_argument("--mutation-sigma", type=float, default=None)
+    parser.add_argument("--parent-fraction", type=float, default=None)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker processes used for fitness evaluations.",
+    )
     parser.add_argument(
         "--run-name",
         type=str,
@@ -66,6 +75,8 @@ def apply_overrides(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, 
         cfg["mutation"]["probability"] = args.mutation_probability
     if args.mutation_sigma is not None:
         cfg["mutation"]["sigma"] = args.mutation_sigma
+    if args.parent_fraction is not None:
+        cfg["parent_selection"]["fraction"] = args.parent_fraction
     return cfg
 
 
@@ -101,7 +112,10 @@ def mutate_gaussian(
 def evaluate_population(
     population: list[np.ndarray],
     cfg: dict[str, Any],
+    executor: ProcessPoolExecutor | None = None,
 ) -> list[float]:
+    if executor is not None:
+        return list(executor.map(evaluate_genotype, population, [cfg] * len(population)))
     return [evaluate_genotype(genotype, cfg) for genotype in population]
 
 
@@ -169,72 +183,78 @@ def main() -> None:
     fraction = cfg["parent_selection"]["fraction"]
     num_parents = max(1, round(pop_size * fraction))
 
-    # --- Initial population --------------------------------------------- #
-    population = [
-        create_random_genotype(
-            rng,
-            input_size,
-            hidden_size,
-            output_size,
-            scale=cfg["network"]["init_scale"],
-        )
-        for _ in range(pop_size)
-    ]
-    fitnesses = evaluate_population(population, cfg)
-    evaluations = len(population)
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
 
-    generation_rows = []
-    best_overall_genotype = None
-    best_overall_fitness = float("inf")
+    # Each worker owns its own MuJoCo process and callback state.
+    executor_context = ProcessPoolExecutor(max_workers=args.workers) if args.workers > 1 else nullcontext()
+    with executor_context as executor:
+        # --- Initial population --------------------------------------------- #
+        population = [
+            create_random_genotype(
+                rng,
+                input_size,
+                hidden_size,
+                output_size,
+                scale=cfg["network"]["init_scale"],
+            )
+            for _ in range(pop_size)
+        ]
+        fitnesses = evaluate_population(population, cfg, executor)
+        evaluations = len(population)
 
-    def record_generation(gen: int) -> None:
-        nonlocal best_overall_genotype, best_overall_fitness
-        best_idx = int(np.argmin(fitnesses))
-        if fitnesses[best_idx] < best_overall_fitness:
-            best_overall_fitness = fitnesses[best_idx]
-            best_overall_genotype = population[best_idx].copy()
-        generation_rows.append(
-            {
-                "generation": gen,
-                "evaluations": evaluations,
-                "best_fitness": float(np.min(fitnesses)),
-                "mean_fitness": float(np.mean(fitnesses)),
-                "std_fitness": float(np.std(fitnesses)),
-            }
-        )
-        print(
-            f"gen {gen:3d} | evals {evaluations:4d} | "
-            f"best {min(fitnesses):.4f} | mean {np.mean(fitnesses):.4f} | "
-            f"std {np.std(fitnesses):.4f}"
-        )
+        generation_rows = []
+        best_overall_genotype = None
+        best_overall_fitness = float("inf")
 
-    # Generation 0 = the initial population, before any evolution.
-    record_generation(0)
+        def record_generation(gen: int) -> None:
+            nonlocal best_overall_genotype, best_overall_fitness
+            best_idx = int(np.argmin(fitnesses))
+            if fitnesses[best_idx] < best_overall_fitness:
+                best_overall_fitness = fitnesses[best_idx]
+                best_overall_genotype = population[best_idx].copy()
+            generation_rows.append(
+                {
+                    "generation": gen,
+                    "evaluations": evaluations,
+                    "best_fitness": float(np.min(fitnesses)),
+                    "mean_fitness": float(np.mean(fitnesses)),
+                    "std_fitness": float(np.std(fitnesses)),
+                }
+            )
+            print(
+                f"gen {gen:3d} | evals {evaluations:4d} | "
+                f"best {min(fitnesses):.4f} | mean {np.mean(fitnesses):.4f} | "
+                f"std {np.std(fitnesses):.4f}"
+            )
 
-    for gen in range(1, num_generations + 1):
-        # Rank parents+population by fitness ascending (lower is better).
-        order = np.argsort(fitnesses)
-        parent_indices = order[:num_parents]
-        parents = [population[i] for i in parent_indices]
+        # Generation 0 = the initial population, before any evolution.
+        record_generation(0)
 
-        # Crossover disabled (Phase 1): offspring are mutated clones of parents.
-        offspring = make_offspring(
-            parents,
-            num_offspring=pop_size,
-            rng=rng,
-            mutation_cfg=cfg["mutation"],
-        )
-        offspring_fitnesses = evaluate_population(offspring, cfg)
-        evaluations += len(offspring)
+        for gen in range(1, num_generations + 1):
+            # Rank parents+population by fitness ascending (lower is better).
+            order = np.argsort(fitnesses)
+            parent_indices = order[:num_parents]
+            parents = [population[i] for i in parent_indices]
 
-        # Elitist survivor selection from parents + offspring.
-        combined = parents + offspring
-        combined_fitnesses = [fitnesses[i] for i in parent_indices] + offspring_fitnesses
-        survivor_order = np.argsort(combined_fitnesses)[:pop_size]
-        population = [combined[i] for i in survivor_order]
-        fitnesses = [combined_fitnesses[i] for i in survivor_order]
+            # Crossover disabled (Phase 1): offspring are mutated clones of parents.
+            offspring = make_offspring(
+                parents,
+                num_offspring=pop_size,
+                rng=rng,
+                mutation_cfg=cfg["mutation"],
+            )
+            offspring_fitnesses = evaluate_population(offspring, cfg, executor)
+            evaluations += len(offspring)
 
-        record_generation(gen)
+            # Elitist survivor selection from parents + offspring.
+            combined = parents + offspring
+            combined_fitnesses = [fitnesses[i] for i in parent_indices] + offspring_fitnesses
+            survivor_order = np.argsort(combined_fitnesses)[:pop_size]
+            population = [combined[i] for i in survivor_order]
+            fitnesses = [combined_fitnesses[i] for i in survivor_order]
+
+            record_generation(gen)
 
     # --- Save outputs ----------------------------------------------------- #
     with (results_dir / "config.yaml").open("w") as f:
