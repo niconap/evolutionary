@@ -232,7 +232,8 @@ def main() -> None:
         record_generation(0)
 
         for gen in range(1, num_generations + 1):
-            # Rank parents+population by fitness ascending (lower is better).
+            # Parent selection ONLY determines who may reproduce - it must not
+            # change who is eligible to survive (see survivor selection below).
             order = np.argsort(fitnesses)
             parent_indices = order[:num_parents]
             parents = [population[i] for i in parent_indices]
@@ -247,9 +248,12 @@ def main() -> None:
             offspring_fitnesses = evaluate_population(offspring, cfg, executor)
             evaluations += len(offspring)
 
-            # Elitist survivor selection from parents + offspring.
-            combined = parents + offspring
-            combined_fitnesses = [fitnesses[i] for i in parent_indices] + offspring_fitnesses
+            # Elitist survivor selection from the full current population + offspring.
+            # The entire previous population competes here, independent of parent_fraction,
+            # so that parent selection and survivor selection are not confounded.
+            combined = population + offspring
+            combined_fitnesses = fitnesses + offspring_fitnesses
+            assert len(combined) == 2 * pop_size
             survivor_order = np.argsort(combined_fitnesses)[:pop_size]
             population = [combined[i] for i in survivor_order]
             fitnesses = [combined_fitnesses[i] for i in survivor_order]

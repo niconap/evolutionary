@@ -1,0 +1,97 @@
+ASSIGNMENT 2 (ARIEL) - PARENT-SELECTION EXPERIMENT RESULTS SUMMARY
+Generated: 2026-10-10
+For: handoff to another agent for evaluation/interpretation
+
+================================================================
+1. FIXED EXPERIMENTAL SETTINGS (identical across ALL conditions below)
+================================================================
+body: spider_12
+world: CraterTerrainWorld
+population_size: 20
+generations: 25
+evaluations per run: 20 + 25*20 = 520
+seeds: 0, 1, 2, 3, 4 (n=5 per condition)
+mutation: gaussian, probability=1.0, sigma=0.1 (shared, not tuned per condition)
+crossover: disabled
+network: hidden_size=6, init_scale=0.5 (input_size=19, output_size=12)
+fitness: euclidean (x,y) distance of final core position to target; LOWER IS BETTER
+survivor selection (corrected): full previous population (20) + full offspring (20)
+  = 40 candidates, keep best 20. Independent of parent fraction (verified via
+  assert len(combined) == 2*pop_size).
+parent selection: only determines who may reproduce (best X% of current population)
+  - 20% condition: best 4 of 20 reproduce
+  - 50% condition: best 10 of 20 reproduce
+  - 80% condition: best 16 of 20 reproduce
+
+Only the parent fraction differs between conditions. This isolates the effect
+of parent-selection pressure from survivor-selection pressure (a confound in
+an earlier version of this experiment was found and fixed - see WORKLOG.md).
+
+================================================================
+2. CONDITION A vs B: 20% vs 50% parents (primary corrected comparison)
+   source: results/comparison_plots_fixed/
+================================================================
+condition,n,mean_final_best,std_final_best
+20% parents,5,0.4518,0.2908
+50% parents,5,0.4948,0.2676
+
+Per-seed final best fitness (lower is better):
+  20% parents: seed0=0.5032 seed1=0.1890 seed2=0.2658 seed3=0.3059 seed4=0.9952
+  50% parents: seed0=0.1850 seed1=0.5819 seed2=0.4078 seed3=0.9650 seed4=0.3346
+
+Plots: convergence.png, convergence_by_generation.png, final_fitness.png,
+population_mean.png (all in results/comparison_plots_fixed/)
+
+================================================================
+3. CONDITION A vs C: 20% vs 80% parents (stronger contrast, exploratory)
+   source: results/comparison_plots_20_vs_80/
+================================================================
+condition,n,mean_final_best,std_final_best
+20% parents,5,0.4518,0.2908
+80% parents,5,0.5987,0.3225
+
+Per-seed final best fitness (lower is better):
+  20% parents: seed0=0.5032 seed1=0.1890 seed2=0.2658 seed3=0.3059 seed4=0.9952
+  80% parents: seed0=0.3467 seed1=0.8397 seed2=1.0682 seed3=0.5605 seed4=0.1784
+
+Plots: convergence.png, convergence_by_generation.png, final_fitness.png,
+population_mean.png (all in results/comparison_plots_20_vs_80/)
+
+================================================================
+4. THREE-WAY OVERVIEW: 20% vs 50% vs 80% (optional, informational only)
+   source: results/comparison_plots_all_parent_fractions/
+================================================================
+condition,n,mean_final_best,std_final_best
+20% parents,5,0.4518,0.2908
+50% parents,5,0.4948,0.2676
+80% parents,5,0.5987,0.3225
+
+Mean final best fitness increases monotonically with parent fraction
+(20% < 50% < 80%), i.e. 20% parents performs best on average in this run,
+50% second, 80% worst. However:
+- n=5 per condition, standard deviations are large relative to the
+  differences in means, and each condition has at least one high-fitness
+  (poor) outlier seed (range roughly 0.18 to ~1.0-1.07 across all conditions).
+- No statistical significance test has been performed or is claimed.
+- This is a single noisy stochastic-simulation EA; conclusions should be
+  treated as a trend/hypothesis, not a confirmed effect, pending more seeds
+  or a formal test.
+
+================================================================
+5. KNOWN CAVEATS FOR THE EVALUATING AGENT
+================================================================
+- An earlier version of the experiment confounded parent selection with
+  survivor selection (survivors were drawn only from selected parents +
+  offspring, not the full population). This was fixed; all data in this
+  summary comes from the corrected implementation (run names ending in
+  "_fixed"). Old unfixed runs (parent_fraction_20 / parent_fraction_50,
+  without "_fixed") must NOT be used for any comparison.
+- Mutation sigma (0.1) and probability (1.0) were not independently tuned
+  per condition; they are shared constants carried over unchanged from the
+  original Phase-1 config.
+- Raw per-generation data (generation, evaluations, best_fitness,
+  mean_fitness, std_fitness) is available per run in
+  results/parent_fraction_<20|50|80>_fixed_seed_<0-4>/generations.csv
+  for deeper analysis (e.g. convergence speed, variance over generations).
+- Full config actually used, per run, is saved in
+  results/parent_fraction_<20|50|80>_fixed_seed_<0-4>/config.yaml.

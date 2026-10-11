@@ -68,28 +68,131 @@ from the repo root), you can drop `uv run --project ../..` and just call
 
 ## Parent-selection comparison
 
-Run the matched 50%-versus-20% parent-selection experiment with five seeds
-and plot the results:
+> **Note:** `run_parent_selection_comparison.sh` (and its `parent_fraction_20`
+> / `parent_fraction_50` results) used a confounded survivor-selection
+> implementation and is kept only for reference — do not use it for new
+> comparisons. Use `run_parent_selection_comparison_fixed.sh` below instead.
+> See `WORKLOG.md` ("Survivor-selection confound fix") for details.
+
+Run the corrected matched 20%-versus-50% parent-selection experiment with
+five seeds and plot the results:
 
 ```bash
-./run_parent_selection_comparison.sh
+./run_parent_selection_comparison_fixed.sh
 ```
 
-The defaults are five seeds, population size 10, five generations, and one
-worker per available CPU reported by `nproc`. For a larger final experiment,
-override them without editing the script:
+The defaults are five seeds (0-4), population size 20, 25 generations, and
+one worker per available CPU reported by `nproc`. Override them without
+editing the script, for example:
 
 ```bash
-SEEDS="0 1 2 3 4 5 6 7 8 9" POPULATION_SIZE=20 GENERATIONS=25 WORKERS=8 \
-  ./run_parent_selection_comparison.sh
+SEEDS="0 1 2 3 4" POPULATION_SIZE=20 GENERATIONS=25 WORKERS=8 \
+  ./run_parent_selection_comparison_fixed.sh
 ```
 
-Plots and `final_fitness_summary.csv` are written to `results/comparison_plots/`.
-Each condition's raw runs are stored separately in `results/`.
+Results are written to `results/parent_fraction_20_fixed_seed_<seed>/` and
+`results/parent_fraction_50_fixed_seed_<seed>/`. Generate the plots and
+numerical summary separately (so you can re-plot without rerunning):
+
+```bash
+uv run --project ../.. python plot_comparison.py --output-dir results/comparison_plots_fixed
+```
+
+This writes to `results/comparison_plots_fixed/`:
+
+- `convergence.png` — best fitness vs. fitness evaluations, mean ± 1 std
+  across seeds (main comparison graph)
+- `convergence_by_generation.png` — same, by generation (secondary view)
+- `final_fitness.png` — boxplot of final best fitness per condition, with
+  individual seed values overlaid as points
+- `population_mean.png` — population mean fitness convergence (optional,
+  kept separate from the best-fitness graph)
+- `final_fitness_per_seed.csv` — one row per (condition, seed)
+- `parent_selection_summary.csv` — `condition, n, mean_final_best, std_final_best`
+
+`plot_comparison.py` only reads the `_fixed` run-name prefixes by default, so
+the old confounded runs can never be mixed into these plots.
 
 `WORKERS` controls the number of CPU processes used for independent fitness
 evaluations. Start with the number of physical CPU cores, or slightly fewer
 if the computer remains busy with other work.
+
+## Parent-selection comparison: 20% vs 80% (stronger contrast)
+
+Exploratory follow-up to the 20%-vs-50% comparison above, testing a larger
+difference in parent-selection pressure. All other settings are identical
+(population size 20, 25 generations, seeds 0-4, mutation probability 1.0 /
+sigma 0.1, hidden size 6, init scale 0.5, crossover disabled, corrected
+elitist survivor selection: full previous population + offspring). The
+existing `parent_fraction_20_fixed_seed_*` runs are reused as-is; only the
+80% condition needs to be run:
+
+```bash
+./run_parent_fraction_80_fixed.sh
+```
+
+Override settings the same way as above, e.g.
+`SEEDS="0 1 2 3 4" POPULATION_SIZE=20 GENERATIONS=25 WORKERS=8 ./run_parent_fraction_80_fixed.sh`.
+Results are written to `results/parent_fraction_80_fixed_seed_<seed>/`.
+
+Generate the dedicated 20%-vs-80% plots/summary (own directory, does not
+touch `comparison_plots_fixed/`):
+
+```bash
+uv run --project ../.. python plot_comparison.py \
+  --condition-b-prefix parent_fraction_80_fixed --condition-b-label "80% parents" \
+  --output-dir results/comparison_plots_20_vs_80
+```
+
+This writes the same set of files as above (`convergence.png`,
+`convergence_by_generation.png`, `final_fitness.png`, `population_mean.png`,
+`final_fitness_per_seed.csv`, `parent_selection_summary.csv`) into
+`results/comparison_plots_20_vs_80/`, containing only the 20%/80% conditions.
+
+Optionally, generate a three-way 20%/50%/80% overview (separate folder,
+does not replace either pairwise comparison):
+
+```bash
+uv run --project ../.. python plot_comparison_all.py --output-dir results/comparison_plots_all_parent_fractions
+```
+
+## Full parent-pressure study: 10/20/50/80/100% + random search (10 seeds)
+
+The complete study extends the above to five parent fractions (10/20/50/80/
+100%) and a matched random-search baseline, all at 10 seeds (0-9), reusing
+the valid seeds 0-4 from the 20/50/80% runs above. All other settings are
+unchanged (population size 20, 25 generations, mutation probability 1.0 /
+sigma 0.1, hidden size 6, init scale 0.5, crossover disabled, corrected
+elitist survivor selection).
+
+```bash
+./run_full_parent_pressure_study.sh
+```
+
+This skips any run whose `generations.csv` already exists, so it is safe to
+re-run after an interruption. Then generate the two sets of plots:
+
+```bash
+uv run --project ../.. python plot_parent_pressure_full.py
+uv run --project ../.. python plot_all_with_random.py
+```
+
+`plot_parent_pressure_full.py` writes to
+`results/comparison_plots_parent_pressure_full/` (10/20/50/80/100% only, no
+random search): `convergence_parent_fractions.png`,
+`convergence_parent_fractions_by_generation.png`,
+`final_fitness_parent_fractions.png`,
+`final_fitness_vs_parent_fraction.png` (mean +/- std per parent fraction),
+`population_mean_parent_fractions.png`, `parent_selection_summary.csv`,
+`parent_selection_per_seed.csv`.
+
+`plot_all_with_random.py` writes to
+`results/comparison_plots_all_with_random/` (all six conditions):
+`convergence_all_with_random.png`, `final_fitness_all_with_random.png`,
+`all_conditions_summary.csv`, `all_conditions_per_seed.csv`.
+
+See `WORKLOG.md` ("Full parent-pressure study") for the numerical results
+and trend assessment.
 
 ## EA versus random-search baseline
 
